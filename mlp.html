@@ -38,7 +38,7 @@
 <p>In <a href="/category/s.html">с++</a>.</p>
 
 </footer><!-- /.post-info -->      <h1>MLP - Multy Layers Proceptron</h1>
-<h2>Обучение</h2>
+<h2>Немного теории</h2>
 <h3>Постановка задачи:</h3>
 <p><img alt="Многослойный процептрон" src="https://i.imgur.com/EkXTFWD.png"></p>
 <p>Пусть у нас есть нейронная сеть, которая имеет пять входов и три выхода. Мы имеем следующие данные. </p>
@@ -62,7 +62,7 @@
 <li>$f'(x) &gt; 0$ - функция возрастает</li>
 <li>$f'(x) &lt; 0$ - функция убывает</li>
 </ol>
-<p>Теперь мы делаем шаг в противоположном направлении от возрастания функции: $x_2=x_1-f'(x_1) x_3=x_2-f'(x_2)....$ выполняем до тех пор пока мы не встретим точку, в которой производная отрицательна 
+<p>Теперь мы делаем шаг в противоположном направлении от возрастания функции: $x_2=x_1-f'(x_1) x_3=x_2-f'(x_2)....$ выполняем до тех пор пока мы не встретим точку, в которой производная равна нулю
 <strong>Алгоритм (Функция одной переменной):</strong></p>
 <ol>
 <li>Инициализировать  $x_1$ случайным значением из R</li>
@@ -78,7 +78,221 @@
 9. i++
 10. if $f(W_{i})-f(W_{i+1})&gt; c$  goto 3</p>
 <p>Для обучения нейронной сети нам требуется минимизировать  формулу 7.</p>
-<hr>
+<h2>MLP в библиотеке OpenCV</h2>
+<h3>Подготовка данных</h3>
+<p>Библиотека OpenCV имеет несколько структур данных, но мы рассмотрим одну из них <code>Mat</code>
+ Класс Mat предствавляет плотные n-мерные числовые одноканальные или многоканальные массивы. Может быть использован для хранения дейтсвительных или комплекснозначных векторов и матриц, в оттенках серого или цветных изображений, векторных полей, тензоров, гистограмм. В коде будет использован шаблонный класс <code>Mat_</code> - это обертка над классом <code>Mat</code> , которую удобно использовать если тип хранимого объекта известен на стадии компиляции.
+<strong>Некоторые особенности:</strong>
+1. операция присваивания не выполняет копирование матрицы, она только копирует внутреннее описания объекта и ссылку на матрицу в памяти (с увеличением счетчика ссылок). (Используется умный указатель)
+2. Для копирования матрицы требуется воспользоваться методом Mat::clone().</p>
+<p><strong>Генерируем данные:</strong>
+Для начало мы создадим данные по которым будем обучать сеть (Делаем для примера). 
+Начнем подготовку данных для обучения сети.
+Создадим матрицу 100x100. Где каждая строка это признаки объекта.
+Тогда мы имеем 100 признаков у объекта и 100 объектов</p>
+<div class="highlight"><pre><span></span>Mat_&lt;float&gt; data(100, 100);
+</pre></div>
+
+
+<p>Заполним  матрицу случайными числами из нормального распределения с параметрами:  mean = 0, sd = 1</p>
+<div class="highlight"><pre><span></span><span class="nt">randn</span><span class="o">(</span><span class="nt">data</span><span class="o">,</span> <span class="nt">Mat</span><span class="p">::</span><span class="nd">zeros</span><span class="o">(</span><span class="nt">1</span><span class="o">,</span> <span class="nt">1</span><span class="o">,</span> <span class="nt">data</span><span class="p">.</span><span class="nc">type</span><span class="o">()),</span> <span class="nt">Mat</span><span class="p">::</span><span class="nd">ones</span><span class="o">(</span><span class="nt">1</span><span class="o">,</span> <span class="nt">1</span><span class="o">,</span> <span class="nt">data</span><span class="p">.</span><span class="nc">type</span><span class="o">()));</span>
+</pre></div>
+
+
+<p>Функции <code>Mat::zeros(rows, cols, type)</code> <code>Mat::ones(rows, cols, type)</code> создают матрицы заполненные нулями и единицами соответственно. Чтобы установить семя для генератора случайных чисел, надо воспользоваться следующей конструкцией:</p>
+<div class="highlight"><pre><span></span><span class="nt">cv</span><span class="p">::</span><span class="nd">theRNG</span><span class="o">()</span><span class="p">.</span><span class="nc">state</span> <span class="o">=</span> <span class="nt">seed</span><span class="o">;</span>
+</pre></div>
+
+
+<p>Поскольку OpenCV разработан с поддержкой много поточности, то семя устанавливается для каждого потока отдельно </p>
+<p>Обучающая выборка представляет собой матрицу "Объекты-признаки" и матрицу ответов. Мы будем разбивать данные на два класса. Создадим матрицу ответов, которая будет содержать две колонки, первая для первого класса, вторая для второго. </p>
+<div class="highlight"><pre><span></span>Mat_&lt;float&gt; responses(data.rows, 2);
+</pre></div>
+
+
+<p>Если объект принадлежит первому классу, то первая колонка заполнена единице, а вторая нулем. Если объект из второго класса то первая колонка содержит ноль, а вторая единицу.(Разделим нашу выборку на два класса по палам)</p>
+<div class="highlight"><pre><span></span><span class="nt">for</span> <span class="o">(</span><span class="nt">int</span> <span class="nt">i</span> <span class="o">=</span> <span class="nt">0</span><span class="o">;</span> <span class="nt">i</span><span class="o">&lt;</span><span class="nt">data</span><span class="p">.</span><span class="nc">rows</span><span class="o">;</span> <span class="o">++</span><span class="nt">i</span><span class="o">)</span>
+    <span class="p">{</span>
+        <span class="err">if</span> <span class="err">(i</span> <span class="err">&lt;</span> <span class="err">data.rows/2)</span>
+        <span class="err">{</span>
+            <span class="err">responses(i,</span> <span class="err">0)</span> <span class="err">=</span> <span class="err">1</span><span class="p">;</span>
+            <span class="err">responses(i,</span> <span class="err">1)</span> <span class="err">=</span> <span class="err">0</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="nt">else</span>
+        <span class="p">{</span>
+            <span class="err">responses(i,</span> <span class="err">0)</span> <span class="err">=</span> <span class="err">0</span><span class="p">;</span>
+            <span class="err">responses(i,</span> <span class="err">1)</span> <span class="err">=</span> <span class="err">1</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="err">}</span>
+   <span class="err">```</span>
+   <span class="nt">Теперь</span> <span class="nt">мы</span> <span class="nt">имеем</span> <span class="nt">обучающую</span> <span class="nt">выборку</span><span class="o">,</span> <span class="nt">которая</span> <span class="nt">представляет</span> <span class="nt">собой</span> <span class="nt">два</span> <span class="nt">объекта</span><span class="o">:</span> <span class="nt">Матрица</span> <span class="s2">&quot;Объекты-признаки&quot;</span> <span class="nt">-</span>  <span class="nt">data</span><span class="o">.</span> <span class="nt">Матрица</span> <span class="nt">ответов</span> <span class="nt">-</span> <span class="nt">responses</span>
+<span class="err">###</span> <span class="nt">Создание</span> <span class="nt">и</span> <span class="nt">Обучение</span> <span class="nt">нейронной</span> <span class="nt">сети</span>
+<span class="nt">Библиотека</span> <span class="nt">OpenCV</span> <span class="nt">имеет</span> <span class="nt">класс</span> <span class="nt">умных</span> <span class="nt">указателей</span> <span class="err">`</span><span class="nt">Ptr</span><span class="o">&lt;</span><span class="nt">T</span><span class="o">&gt;</span><span class="err">`</span><span class="o">,</span> <span class="nt">которые</span> <span class="nt">представлю</span> <span class="nt">собой</span> <span class="nt">полный</span>  <span class="nt">аналог</span> <span class="err">`</span><span class="nt">shared_ptr</span><span class="err">`</span> <span class="nt">из</span> <span class="nt">boost</span> <span class="nt">или</span> <span class="nt">стандартной</span> <span class="nt">библиотеки</span>
+<span class="nt">Для</span> <span class="nt">создания</span> <span class="nt">не</span> <span class="nt">настроенной</span> <span class="nt">пустой</span> <span class="nt">нейронной</span> <span class="nt">сети</span> <span class="nt">воспользуемся</span> <span class="nt">статическим</span> <span class="nt">методом</span> <span class="nt">create</span>
+<span class="err">```</span><span class="nt">c</span><span class="o">++</span><span class="nt">11</span>
+<span class="nt">Ptr</span><span class="o">&lt;</span><span class="nt">ANN_MLP</span><span class="o">&gt;</span> <span class="nt">network</span> <span class="o">=</span> <span class="nt">ANN_MLP</span><span class="p">::</span><span class="nd">create</span><span class="o">();</span>
+</pre></div>
+
+
+<p>Данная нейронная сеть пуста, нам требуется указать сколько слоев и сколько нейронов в каждом слое. Создадим матрицу, которая будет содержать данную информацию</p>
+<div class="highlight"><pre><span></span>Mat_&lt;int&gt; layerSizes(1, 3);
+//Первый слой - это входа в сеть. их столько сколько и признаков
+    layerSizes(0, 0) = data.cols; 
+    layerSizes(0, 1) = 20;//скрытый слой
+//выходной слой. Их столько сколько должно быть ответов. в нашем случае 2
+    layerSizes(0, 2) = responses.cols;
+</pre></div>
+
+
+<p>Информацию о количестве нейронов и слоях надо передать объекту нейронной сети. количество слоев это количество колонок в матрице</p>
+<div class="highlight"><pre><span></span>network-&gt;setLayerSizes(layerSizes);
+</pre></div>
+
+
+<p>Нам осталось указать, какой функцией активации мы хотели бы воспользоваться и каким методом обучать сеть:</p>
+<div class="highlight"><pre><span></span>virtual void cv::ml::ANN_MLP::setActivationFunction(int type,double param1 = 0,double param2 = 0 )  
+</pre></div>
+
+
+<p>type - тип функции активации
+param1 - параметр $\alpha$ 
+param2 -  параметр $\beta$ 
+|Тип|Функция активации|
+|----|----------------|
+|IDENTITY| $f(x)=x$|
+|SIGMOID_SYM| $f(x)=\beta <em>(1-e^{-\alpha x})/(1+e^{-\alpha x})$
+||Если используются параметры по умолчанию, то тогда используется другая функция: $y = 1.7159</em>tanh(2/3*x)$, область значений: [-1.7159; 1.7159]; область определения: [0;1]
+|GAUSSIAN | $f(x)=\beta e^{-\alpha x^2}$|
+Воспользуемся сигмоидной функцией активации </p>
+<div class="highlight"><pre><span></span><span class="nt">network-</span><span class="o">&gt;</span><span class="nt">setActivationFunction</span><span class="o">(</span><span class="nt">ANN_MLP</span><span class="p">::</span><span class="nd">SIGMOID_SYM</span><span class="o">,</span> <span class="nt">0</span><span class="p">.</span><span class="nc">1</span><span class="o">,</span> <span class="nt">0</span><span class="p">.</span><span class="nc">1</span><span class="o">);</span>
+</pre></div>
+
+
+<p>Установка метода обучения:</p>
+<div class="highlight"><pre><span></span>virtual void cv::ml::ANN_MLP::setTrainMethod(int method, double param1 = 0, double param2 = 0)
+</pre></div>
+
+
+<table>
+<thead>
+<tr>
+<th>Параметры\Тип метода обучения</th>
+<th>BACKPROP</th>
+<th>RPROP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>param1</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>param2</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><span class="nt">network-</span><span class="o">&gt;</span><span class="nt">setTrainMethod</span><span class="o">(</span><span class="nt">ANN_MLP</span><span class="p">::</span><span class="nd">BACKPROP</span><span class="o">,</span> <span class="nt">0</span><span class="p">.</span><span class="nc">1</span><span class="o">,</span> <span class="nt">0</span><span class="p">.</span><span class="nc">1</span><span class="o">);</span>
+</pre></div>
+
+
+<p>Создадим объект обучающей выборки и перейдем у обучению</p>
+<div class="highlight"><pre><span></span><span class="nt">Ptr</span><span class="o">&lt;</span><span class="nt">TrainData</span><span class="o">&gt;</span> <span class="nt">trainData</span> <span class="o">=</span> <span class="nt">TrainData</span><span class="p">::</span><span class="nd">create</span><span class="o">(</span><span class="nt">data</span><span class="o">,</span> <span class="nt">ROW_SAMPLE</span><span class="o">,</span> <span class="nt">responses</span><span class="o">);</span>
+<span class="nt">network-</span><span class="o">&gt;</span><span class="nt">train</span><span class="o">(</span><span class="nt">trainData</span><span class="o">);</span>
+</pre></div>
+
+
+<h3>Использование</h3>
+<div class="highlight"><pre><span></span><span class="nt">if</span> <span class="o">(</span><span class="nt">network-</span><span class="o">&gt;</span><span class="nt">isTrained</span><span class="o">())</span>
+    <span class="p">{</span>
+        <span class="err">printf(&quot;Predict</span> <span class="n">one-vector</span><span class="p">:</span><span class="err">\</span><span class="n">n</span><span class="s2">&quot;);</span>
+<span class="s2">        Mat result;</span>
+<span class="s2">        network-&gt;predict(Mat::ones(1, data.cols, data.type()), result);</span>
+<span class="s2">        cout &lt;&lt; result &lt;&lt; endl;</span>
+
+<span class="s2">        printf(&quot;</span><span class="n">Predict</span> <span class="n">training</span> <span class="n">data</span><span class="o">:</span><span class="err">\</span><span class="n">n</span><span class="err">&quot;</span><span class="p">);</span>
+        <span class="err">for</span> <span class="err">(int</span> <span class="err">i</span> <span class="err">=</span> <span class="err">0</span><span class="p">;</span> <span class="err">i&lt;data.rows</span><span class="p">;</span> <span class="err">++i)</span>
+        <span class="err">{</span>
+            <span class="err">network-&gt;predict(data.row(i),</span> <span class="err">result)</span><span class="p">;</span>
+            <span class="err">cout</span> <span class="err">&lt;&lt;</span> <span class="err">result</span> <span class="err">&lt;&lt;</span> <span class="err">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="err">}</span>
+</pre></div>
+
+
+<p><strong>Весь код программы:</strong></p>
+<div class="highlight"><pre><span></span><span class="cp">#include</span> <span class="cpf">&lt;opencv2/ml/ml.hpp&gt;</span><span class="cp"></span>
+
+<span class="n">using</span> <span class="n">namespace</span> <span class="n">std</span><span class="p">;</span>
+<span class="n">using</span> <span class="n">namespace</span> <span class="n">cv</span><span class="p">;</span>
+<span class="n">using</span> <span class="n">namespace</span> <span class="n">cv</span><span class="o">::</span><span class="n">ml</span><span class="p">;</span>
+
+<span class="kr">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="c1">//создания случайной обучающей выборки</span>
+    <span class="n">Mat_</span><span class="o">&lt;</span><span class="kr">float</span><span class="o">&gt;</span> <span class="n">data</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">);</span><span class="c1">//матрица 100x100</span>
+    <span class="n">theRNG</span><span class="p">().</span><span class="n">state</span> <span class="o">=</span> <span class="mi">2015</span><span class="p">;</span>
+    <span class="n">randn</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">Mat</span><span class="o">::</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">data</span><span class="p">.</span><span class="n">type</span><span class="p">()),</span> <span class="n">Mat</span><span class="o">::</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">data</span><span class="p">.</span><span class="n">type</span><span class="p">()));</span>
+    <span class="n">Mat_</span><span class="o">&lt;</span><span class="kr">float</span><span class="o">&gt;</span> <span class="n">data2</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">);</span>
+    <span class="n">theRNG</span><span class="p">().</span><span class="n">state</span> <span class="o">=</span> <span class="mi">2015</span><span class="p">;</span>
+    <span class="n">randn</span><span class="p">(</span><span class="n">data2</span><span class="p">,</span> <span class="p">(</span><span class="kr">float</span><span class="p">)</span><span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="kr">float</span><span class="p">)</span><span class="mi">1</span><span class="p">);</span>
+    <span class="c1">//разделим выборку по полам. первая часть отнесем к первому классу</span>
+    <span class="c1">//вторую часть отнесем ко второму классу</span>
+    <span class="n">Mat_</span><span class="o">&lt;</span><span class="kr">float</span><span class="o">&gt;</span> <span class="n">responses</span><span class="p">(</span><span class="n">data</span><span class="p">.</span><span class="n">rows</span><span class="p">,</span> <span class="mi">2</span><span class="p">);</span><span class="c1">//матрица ответов (Метки классов)</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kr">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="n">data</span><span class="p">.</span><span class="n">rows</span><span class="p">;</span> <span class="o">++</span><span class="n">i</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="n">data</span><span class="p">.</span><span class="n">rows</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">responses</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+            <span class="n">responses</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">else</span>
+        <span class="p">{</span>
+            <span class="n">responses</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+            <span class="n">responses</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*</span>
+<span class="cm">    //example code for just a single response (regression)</span>
+<span class="cm">    Mat_&lt;float&gt; responses(data.rows, 1);</span>
+<span class="cm">    for (int i=0; i&lt;responses.rows; ++i)</span>
+<span class="cm">    responses(i, 0) = i &lt; responses.rows / 2 ? 0 : 1;</span>
+<span class="cm">    */</span>
+
+    <span class="c1">//создание нейронной сети</span>
+    <span class="n">Mat_</span><span class="o">&lt;</span><span class="kr">int</span><span class="o">&gt;</span> <span class="n">layerSizes</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">);</span>
+    <span class="n">layerSizes</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">=</span> <span class="n">data</span><span class="p">.</span><span class="n">cols</span><span class="p">;</span>
+    <span class="n">layerSizes</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">=</span> <span class="mi">20</span><span class="p">;</span>
+    <span class="n">layerSizes</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">=</span> <span class="n">responses</span><span class="p">.</span><span class="n">cols</span><span class="p">;</span>
+
+    <span class="n">Ptr</span><span class="o">&lt;</span><span class="n">ANN_MLP</span><span class="o">&gt;</span> <span class="n">network</span> <span class="o">=</span> <span class="n">ANN_MLP</span><span class="o">::</span><span class="n">create</span><span class="p">();</span>
+    <span class="n">network</span><span class="o">-&gt;</span><span class="n">setLayerSizes</span><span class="p">(</span><span class="n">layerSizes</span><span class="p">);</span>
+    <span class="n">network</span><span class="o">-&gt;</span><span class="n">setActivationFunction</span><span class="p">(</span><span class="n">ANN_MLP</span><span class="o">::</span><span class="n">SIGMOID_SYM</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">);</span>
+    <span class="n">network</span><span class="o">-&gt;</span><span class="n">setTrainMethod</span><span class="p">(</span><span class="n">ANN_MLP</span><span class="o">::</span><span class="n">BACKPROP</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">);</span>
+    <span class="n">Ptr</span><span class="o">&lt;</span><span class="n">TrainData</span><span class="o">&gt;</span> <span class="n">trainData</span> <span class="o">=</span> <span class="n">TrainData</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">ROW_SAMPLE</span><span class="p">,</span> <span class="n">responses</span><span class="p">);</span>
+
+    <span class="n">network</span><span class="o">-&gt;</span><span class="n">train</span><span class="p">(</span><span class="n">trainData</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">network</span><span class="o">-&gt;</span><span class="n">isTrained</span><span class="p">())</span>
+    <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">&quot;Predict one-vector:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+        <span class="n">Mat</span> <span class="n">result</span><span class="p">;</span>
+        <span class="n">network</span><span class="o">-&gt;</span><span class="n">predict</span><span class="p">(</span><span class="n">Mat</span><span class="o">::</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">data</span><span class="p">.</span><span class="n">cols</span><span class="p">,</span> <span class="n">data</span><span class="p">.</span><span class="n">type</span><span class="p">()),</span> <span class="n">result</span><span class="p">);</span>
+        <span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">result</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+
+        <span class="n">printf</span><span class="p">(</span><span class="s">&quot;Predict training data:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">);</span>
+        <span class="k">for</span> <span class="p">(</span><span class="kr">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="n">data</span><span class="p">.</span><span class="n">rows</span><span class="p">;</span> <span class="o">++</span><span class="n">i</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">network</span><span class="o">-&gt;</span><span class="n">predict</span><span class="p">(</span><span class="n">data</span><span class="p">.</span><span class="n">row</span><span class="p">(</span><span class="n">i</span><span class="p">),</span> <span class="n">result</span><span class="p">);</span>
+            <span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">result</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
     </div><!-- /.entry-content -->
 
   </article>
